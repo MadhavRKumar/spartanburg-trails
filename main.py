@@ -1,7 +1,10 @@
+import os
+from dotenv import load_dotenv
 import geopandas as gpd
 
+load_dotenv()
+
 def read_shp_file(path):                                                                                                                                                        
-    """Read shapefile data from specified path."""                                                                                                                              
     try:
         gdf = gpd.read_file(path)
         gdf.geometry.set_crs('EPSG:4326', inplace=True)
@@ -39,9 +42,8 @@ def calculate_intersection_percent(gdf_polygon, gdf_polyline):
     return gdf_polygon[['District', 'CouncilPer', 'percentage', 'length', 'geometry']]
 
 if __name__ == "__main__":                                                                                                                                                      
-    polygon_data = read_shp_file('https://services9.arcgis.com/HoRra3ATPLGmyjn6/ArcGIS/rest/services/CouncilDistricts_2023/FeatureServer/0/query?where=1%3D1&objectIds=&geometry=&geometryType=esriGeometryEnvelope&inSR=&spatialRel=esriSpatialRelIntersects&resultType=none&distance=0.0&units=esriSRUnit_Meter&relationParam=&returnGeodetic=false&outFields=District%2CCouncilPer&returnGeometry=true&returnCentroid=false&returnEnvelope=false&featureEncoding=esriDefault&multipatchOption=xyFootprint&maxAllowableOffset=&geometryPrecision=&outSR=&defaultSR=&datumTransformation=&applyVCSProjection=false&returnIdsOnly=false&returnUniqueIdsOnly=false&returnCountOnly=false&returnExtentOnly=false&returnQueryGeometry=false&returnDistinctValues=false&cacheHint=false&collation=&orderByFields=&groupByFieldsForStatistics=&outStatistics=&having=&resultOffset=&resultRecordCount=&returnZ=false&returnM=false&returnTrueCurves=false&returnExceededLimitFeatures=true&quantizationParameters=&sqlFormat=none&f=pgeojson&token=')
-
-    polyline_data = read_shp_file('https://maps.spartanburgcounty.org/server/rest/services/GIS/Dan_Trails/MapServer/0/query?where=1%3D1&text=&objectIds=&time=&timeRelation=esriTimeRelationOverlaps&geometry=&geometryType=esriGeometryEnvelope&inSR=&spatialRel=esriSpatialRelIntersects&distance=&units=esriSRUnit_Meter&relationParam=&outFields=&returnGeometry=true&returnTrueCurves=false&maxAllowableOffset=&geometryPrecision=&outSR=&havingClause=&returnIdsOnly=false&returnCountOnly=false&orderByFields=&groupByFieldsForStatistics=&outStatistics=&returnZ=false&returnM=false&gdbVersion=&historicMoment=&returnDistinctValues=false&resultOffset=&resultRecordCount=&returnExtentOnly=false&sqlFormat=none&datumTransformation=&parameterValues=&rangeValues=&quantizationParameters=&featureEncoding=esriDefault&f=geojson')
+    polygon_data = read_shp_file(os.environ['POLYGON_DATA'])
+    polyline_data = read_shp_file(os.environ['POLYLINE_DATA'])
 
     output = calculate_intersection_percent(polygon_data, polyline_data) 
     sum = output['percentage'].sum()
