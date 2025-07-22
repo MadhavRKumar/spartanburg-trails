@@ -2,3 +2,6 @@
 .venv
 *.geojson
 .env
+*.html
+*.json
+*.csv
