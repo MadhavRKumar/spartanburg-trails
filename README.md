@@ -1,10 +1,5 @@
 # About
-A python script to calculate the distribution of trails within each Spartanburg
-City Council District. 
-
-It then creates a geojson file of the City Council Districts
-with the trail data included. That is used to create [this map](https://umap.openstreetmap.fr/en/map/spartanburg-city-district-trails_1225351#13/34.9422/-81.9294)
-which shows the distribution of trails within each district.
+A repository with various scripts to analyze and visualize data about Spartanburg.
 
 # Usage
 Use `venv` to create a virtual environment and install the required packages:
@@ -17,7 +12,7 @@ pip install -r requirements.txt
 Copy `.env.example` to `.env` and fill in the required variables. The values can
 be remote URLs or local paths. 
 
-Then run the script with:
+Then run whatever script you want. For example, to run the main script:
 ```bash
 python main.py
 ```
