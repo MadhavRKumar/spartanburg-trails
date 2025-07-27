@@ -5,7 +5,7 @@ import geoplot as gplt
 import matplotlib.pyplot as plt
 
 import folium as fl
-from folium.plugins import MeasureControl
+from folium.plugins import Fullscreen, Geocoder
 
 from shapely import shortest_line, MultiPoint
 from sklearn.cluster import AgglomerativeClustering
@@ -157,6 +157,28 @@ def get_city_and_county_roads():
     # save the roads to a GeoJSON file
     roads.to_file("complete_spartanburg_roads.geojson", driver="GeoJSON")
 
+
+def count_primary_factors(series):
+    # sometimes we get one value, not a series, so we need to check for that
+    if isinstance(series, str):
+        series = pd.Series([series])
+
+    if series.empty:
+        series = pd.Series([])
+
+    factors = series.value_counts().reset_index().rename(columns={0: 'count', 'index': 'PrimaryFactor'}).to_dict(orient='records')
+    # get the factors with the highest count as formatted string
+    # if there are multiple factors with the same count, return them all
+    if not factors:
+        return ''
+    total_count = sum(factor['count'] for factor in factors)
+    max_count = max(factor['count'] for factor in factors)
+
+    # format the most_common_factors as a string with percentage
+    formatted_factors = '<br/>'.join(f"{factor['PrimaryFactor']} ({(factor['count'] / total_count) * 100:.2f}%)" for factor in factors if factor['count'] == max_count)
+    return formatted_factors if formatted_factors else ''
+
+
 def calculate_city_crash_rates():
     collisions = read_file("spartanburg_collisions_2017-2021_clipped.geojson", "EPSG:32617")
     roads = read_file("complete_spartanburg_roads.geojson", "EPSG:32617")
@@ -179,15 +201,12 @@ def calculate_city_crash_rates():
             return 0.0
         return SequenceMatcher(None, row['Street'], row['STREET_NAM']).ratio()
 
-    print(len(collisions_per_road))
 
     collisions_per_road['name_match'] = collisions_per_road.apply(compare_street_names, axis=1)
     # sort the collisions by name_match and drop duplicates
     collisions_per_road = collisions_per_road.sort_values(by='name_match', ascending=False).drop_duplicates(subset='AccidentNumber')
 
-    print(len(collisions_per_road))
 
-    print(len(collisions))
 
     # function to find most common street name from agg, if there are multiple names
     # with the same count, it will return the first one
@@ -202,14 +221,15 @@ def calculate_city_crash_rates():
     def get_unique_values(series):
         return series.unique().tolist() if not series.empty else []
 
+
     # aggregate the collisions by road segment and keep the Street Name and OBJECTID
     # store all of the collision data for each road segment
     collisions_per_road = collisions_per_road.groupby(collisions_per_road.index).agg(
         collision_count=('AccidentNumber', 'size'),
         collisions=('AccidentNumber', lambda x: ', '.join(x.unique())),
+        primary_factors=('PrimaryFactor', count_primary_factors),
     ).reset_index()
 
-    print(collisions_per_road['collision_count'].sum())
 
     # merge the collision counts with the roads GeoDataFrame
     roads = roads.merge(collisions_per_road, left_index=True, right_on='index', how='left')
@@ -234,14 +254,14 @@ def calculate_city_crash_rates():
 
 
     # print the top 10 roads with the highest crash rate
-    print(roads[['FactoredAA','BeginMileP', 'EndMilePoi', 'length_of_road', 
-                  'collision_count', 'RoadName', 'RouteLRS', 'crash_rate_per_million_vmt']].sort_values(by='crash_rate_per_million_vmt', ascending=False).head(10))
+    # print(roads[['FactoredAA','BeginMileP', 'EndMilePoi', 'length_of_road', 
+    #               'collision_count', 'RoadName', 'RouteLRS', 'crash_rate_per_million_vmt']].sort_values(by='crash_rate_per_million_vmt', ascending=False).head(10))
 
 
     # # save the roads with collision data to a GeoJSON file
     # # only save the columns we need
     roads_to_save = roads[['FactoredAA', 'BeginMileP', 'EndMilePoi', 'length_of_road', 'crash_rate_per_million_vmt', 
-                           'collision_count', 'STREET_NAM', 'collisions',  'geometry']]
+                           'collision_count', 'STREET_NAM', 'primary_factors', 'collisions',  'geometry']]
 
     roads_to_save.to_file("spartanburg_roads_with_collisions.geojson", driver="GeoJSON")
 
@@ -314,13 +334,17 @@ def calculate_crash_rates_for_junctions():
 
     def get_unique_values_as_string(series):
         return ','.join(series.unique().astype(str)) if not series.empty else ''
+    
 
     # aggregate the collisions by intersection and keep the AccidentNumber
     # only count unique AccidentNumbers
     junctions_with_collisions = junctions_with_collisions.groupby('index_right').agg(
         collision_count=('AccidentNumber', lambda x: x.nunique()),
         collisions=('AccidentNumber', lambda x: get_unique_values_as_string(x)),
+        primary_factors=('PrimaryFactor', count_primary_factors),
     ).reset_index()
+
+    # print(junctions_with_collisions.head())
 
 
     # merge the collision counts with the intersections GeoDataFrame
@@ -334,7 +358,7 @@ def calculate_crash_rates_for_junctions():
 
 
     # only keep the collision_count, AADT_mean, and geometry columns 
-    intersections = intersections[['intersection_AADT', 'collision_count',  'crash_rate_per_million_vmt', 'collisions', 'intersection_name', 'geometry']].copy()
+    intersections = intersections[['intersection_AADT', 'collision_count',  'crash_rate_per_million_vmt', 'collisions', 'primary_factors', 'intersection_name', 'geometry']].copy()
 
     # ax = roads.plot(figsize=(15,15), zorder=1, linewidth=1, color="gray")
     m = roads[['RoadName', 'FactoredAA', 'geometry']].to_crs(4326).explore(color='orange', name='Road')
@@ -360,21 +384,22 @@ def make_map():
     roads = read_file("spartanburg_roads_with_collisions.geojson", 4326)
     city_limits = read_file("spartanburg_city_limits.geojson", 4326)
     intersections = read_file("intersection_collisions.geojson", 4326)
-    collisions = read_file("spartanburg_collisions_2017-2021_clipped.geojson", 4326)
+    # collisions = read_file("spartanburg_collisions_2017-2021_clipped.geojson", 4326)
 
     # drop the collisions column from intersections
     intersections = intersections.drop(columns=['collisions'], errors='ignore')
 
     intersections = intersections.rename(columns={
         'intersection_AADT': 'Intersection AADT',
-        'collision_count': 'Collision Count',
-        'crash_rate_per_million_vmt': 'Intersection Crash Rate',
-        'intersection_name': 'Intersection Name',
+        'collision_count': 'Collisions',
+        'crash_rate_per_million_vmt': 'Crash Rate',
+        'intersection_name': 'Name',
+        'primary_factors': 'Primary Factors',
     })
 
     # round the crash rate to 2 decimal places
-    intersections['Intersection Crash Rate'] = intersections['Intersection Crash Rate'].round(2)
-    intersections = intersections[['Intersection Name', 'Intersection Crash Rate','Intersection AADT', 'Collision Count',  'geometry']]
+    intersections['Crash Rate'] = intersections['Crash Rate'].round(2)
+    intersections = intersections[['Name', 'Crash Rate','Intersection AADT', 'Collisions', 'Primary Factors', 'geometry']]
 
 
     # rename the columns to be more descriptive
@@ -385,16 +410,18 @@ def make_map():
         'RoadName': 'Road Name',
         'length_of_road': 'Road Length (Miles)',
         'RouteLRS': 'Route LRS',
-        'STREET_NAM': 'Street Name',
+        'STREET_NAM': 'Name',
         'crash_rate_per_million_vmt': 'Crash Rate per Million VMT',
-        'collision_count': 'Collision Count',
+        'collision_count': 'Collisions',
+        'primary_factors': 'Primary Factors',
     })
     roads['Crash Rate per Million VMT'] = roads['Crash Rate per Million VMT'].round(2)
-    roads = roads[['Street Name', 'Crash Rate per Million VMT', 'Collision Count', 'AADT', 'Road Length (Miles)', 'geometry']]
+    roads = roads[['Name', 'Crash Rate per Million VMT', 'Collisions', 'AADT', 'Road Length (Miles)', 'Primary Factors', 'geometry']]
 
     bounds = roads.total_bounds
     xmin, ymin, xmax, ymax = bounds
-    m = fl.Map(min_lat=ymin, min_lon=xmin, max_lat=ymax, max_lon=xmax, zoom_start=12, min_zoom=12, max_zoom=18)
+
+    m = fl.Map(min_lat=ymin, min_lon=xmin, max_lat=ymax, max_lon=xmax, zoom_start=12, min_zoom=12, max_zoom=30, zoom_control=False)
 
     fl.GeoJson(city_limits, style_function=lambda x: {'fillColor': 'black', 'color': 'black', 'weight': 2, 'fillOpacity': 0.4}, name='City Limits').add_to(m)
 
@@ -403,24 +430,31 @@ def make_map():
     roads.explore(m=m, column='Crash Rate per Million VMT', cmap='Reds', name='Crash Data', scheme='NaturalBreaks', legend=True, figsize=(20, 20),
                   style_kwds={'weight': 2})
 
-    intersections.explore(m=m, column='Intersection Crash Rate', cmap='cool', name='Intersection Collisions', marker_kwds={'radius': 4}, scheme='NaturalBreaks', legend=True)
+    intersections.explore(m=m, column='Crash Rate', cmap='cool', name='Intersection Collisions', marker_kwds={'radius': 4}, scheme='NaturalBreaks', legend=True)
 
-    collisions.explore(m=m, style_kwds={'stroke': False, 'fillColor': 'black', 'fillOpacity': 0.5 }, name='Collisions', marker_kwds={'radius': 2})
+    # collisions.explore(m=m, style_kwds={'stroke': False, 'fillColor': 'black', 'fillOpacity': 0.5 }, name='Collisions', marker_kwds={'radius': 2})
 
     fl.LayerControl().add_to(m)
-    m.add_child(MeasureControl())
+
+    m.add_child(Fullscreen(force_separate_button=True, position='topright'))
+    m.add_child(Geocoder(position='topright', collapsed=True, zoom=12))
 
     m.save("spartanburg_roads_with_collisions.html")
 
-    print(roads[['Street Name', 'Crash Rate per Million VMT', 'Collision Count', 'AADT']].sort_values(by='Crash Rate per Million VMT', ascending=False).head(10).to_markdown(index=False))
+    roads_to_print = roads[['Name', 'Crash Rate per Million VMT', 'Collisions', 'Primary Factors']]
+    roads = roads[roads['Collisions'] > 5]
 
-    print(intersections[['Intersection Name', 'Intersection Crash Rate', 'Intersection AADT', 'Collision Count']].sort_values(by='Intersection Crash Rate', ascending=False).head(10).to_markdown(index=False))
+    intersections_to_print = intersections[['Name', 'Crash Rate', 'Collisions', 'Primary Factors']]
+    intersections = intersections[intersections['Collisions'] > 5]
+
+    # print(roads[['Name', 'Crash Rate per Million VMT', 'Collisions', 'Primary Factors']].sort_values(by='Crash Rate per Million VMT', ascending=False).head(10).to_markdown(index=False))
+    #
+    # print(intersections[['Name', 'Crash Rate', 'Collisions', 'Primary Factors']].sort_values(by='Crash Rate', ascending=False).head(10).to_markdown(index=False))
 
 
 
 if __name__ == "__main__":
-    # # calculate_crash_rates_for_junctions()
-    #
+    # calculate_crash_rates_for_junctions()
     # calculate_city_crash_rates()
     make_map()
 
